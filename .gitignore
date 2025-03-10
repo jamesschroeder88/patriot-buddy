@@ -1,0 +1,21 @@
+# Secrets and environment files
+.env
+*.env
+.env.*
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE settings
+.idea/
+.vscode/
+
+# Configuration files with sensitive information
+patriot_buddy_config.json
