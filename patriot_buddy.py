@@ -14,7 +14,7 @@ import requests
 import speech_recognition as sr
 from elevenlabs.client import ElevenLabs
 from elevenlabs import play, VoiceSettings
-
+from stock_helper import extract_stock_info, add_stock, get_stock_data, place_order
 # Load environment variables
 load_dotenv()
 
@@ -937,49 +937,31 @@ class VoiceAssistantGUI(QMainWindow):
             print(f"Error getting weather: {e}")
             return "I had trouble getting the weather information."
 
+# Main function (matches get_stocks(self, prompt))
     def get_stocks(self, prompt):
-        """
-        Get stock information using the configured API
-        """
-        # Check if stocks API is enabled
-        if not self.api_config["apis"]["stocks"]["enabled"]:
-            return "Stock information is currently disabled. You can enable it in settings."
+        stock_info = extract_stock_info(prompt)
+        if stock_info:
+            symbol = stock_info.get("symbol")
+            quantity = stock_info.get("quantity", 0)
+            action = stock_info.get("action")
 
-        # Extract stock symbol
-        url = "http://localhost:11434/api/generate"
-        data = {
-            "model": "mistral",
-            "prompt": f"""Extract the stock symbol or company name from the following stock request.
-            Return ONLY the stock symbol or company name, nothing else.
+            if symbol:
+                add_stock(symbol)
 
-            Request: "{prompt}"
+                # Execute trade if action is buy/sell
+                if action in ["buy", "sell"] and quantity > 0:
+                    order_response = place_order(symbol, quantity, action)
+                    return f"Order placed: {action} {quantity} shares of {symbol}. Response: {order_response}"
+                else:
+                    return f"Tracking stock: {symbol}"
 
-            Stock:"""
-        }
+        # Update stock data in database
+        df = get_stock_data()
+        if not df.empty:
+            df.to_sql("stock_prices", conn, if_exists="replace", index=False)
+            return f"Updated stock data at {pd.Timestamp.now()}"
 
-        try:
-            response = requests.post(url, json=data, stream=True)
-            stock = ""
-            for line in response.iter_lines():
-                if line:
-                    json_response = json.loads(line)
-                    if 'response' in json_response:
-                        stock += json_response['response']
-
-            stock = stock.strip()
-
-            # Mock stock data (would normally call an actual API)
-            price = round(random.uniform(50, 500), 2)
-            change = round(random.uniform(-3, 5), 2)
-            change_percent = round(change / price * 100, 2)
-
-            direction = "up" if change > 0 else "down"
-
-            return f"{stock} is trading at ${price}, {direction} {abs(change_percent)}%. Trading volume is moderate today."
-
-        except Exception as e:
-            print(f"Error getting stock information: {e}")
-            return "I had trouble getting the stock information."
+        return "Unable to process stock request."
 
     def trigger_ifttt(self, event_name):
         """
