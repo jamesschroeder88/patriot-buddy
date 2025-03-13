@@ -300,8 +300,8 @@ class VoiceAssistantGUI(QMainWindow):
         return DEFAULT_API_CONFIG
     
     def process_text(self, text):
-        self.user_input.setText(text)  # Update UI with recognized text
-        self.process_command(text)  # Process the recognized command
+        self.user_input.setText(text)  
+        threading.Thread(target=self.process_command(text), daemon=True).start()
 
     def set_direct_mode(self, mode):
         """Set the direct mode for the next interaction"""
