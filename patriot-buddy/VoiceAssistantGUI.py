@@ -1,5 +1,6 @@
 from ListeningAnimation import ListeningAnimation
 from APIconfigDialog import ApiConfigDialog
+from Listener import Listener
 from Colors import *
 from modernFrame import ModernFrame
 from dotenv import load_dotenv
@@ -19,8 +20,6 @@ from elevenlabs import play, VoiceSettings
 
 CONFIG_FILE = "patriot-buddy/patriot_buddy_config.json"
 
-
-
 class VoiceAssistantGUI(QMainWindow):
     update_signal = Signal(str, str)  # (message, type)
 
@@ -36,13 +35,10 @@ class VoiceAssistantGUI(QMainWindow):
     # Initialize ElevenLabs client
     client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
-    # Path to save API configuration
-
-
     def __init__(self):
         super().__init__()
-        self.is_listening = False
-        self.r = sr.Recognizer()
+        self.listener = Listener()
+        self.listener.text_received.connect(self.process_text)
         self.selected_mode = None
         self.api_config = self.load_config()
         self.init_ui()
@@ -113,7 +109,7 @@ class VoiceAssistantGUI(QMainWindow):
                 border-radius: 80px;
             }
         """)
-        self.buddy_container.clicked.connect(self.toggle_listening)
+        self.buddy_container.clicked.connect(self.checkListener)
 
         # Logo
         self.logo_label = QLabel(self.buddy_container)
@@ -252,6 +248,42 @@ class VoiceAssistantGUI(QMainWindow):
         # Highlight Normal mode button initially
         self.set_direct_mode(None)
 
+    def startListeningChangeUI(self):
+        self.status_label.setText("Listening...")
+        self.logo_label.setVisible(False)
+        self.animation_widget.setVisible(True)  
+        self.animation_widget.start_animation()
+        self.user_input.setText("")
+        self.response_display.setText("")
+
+    def stopListeningChangeUI(self):
+        self.animation_widget.stop_animation()
+        self.animation_widget.setVisible(False)  
+        self.logo_label.setVisible(True)  
+
+        if self.selected_mode is None:
+            mode_text = "Normal"
+        elif self.selected_mode == "CONVERSATION":
+            mode_text = "Chat"
+        elif self.selected_mode == "HOME_AUTOMATION":
+            mode_text = "Lights"
+        elif self.selected_mode == "EXTERNAL_API":
+            mode_text = "Weather/Stocks"
+        else:
+            mode_text = "Normal"
+
+        self.status_label.setText(f"Mode set to {mode_text}. Click Patriot Buddy to speak.")
+
+    def checkListener(self):
+        check = self.listener.toggle_listening()
+
+        if check == "Listening":
+            self.startListeningChangeUI()
+            #self.update_signal.emit(self.Listener.text_received)
+        else:
+            self.stopListeningChangeUI()
+
+
     def open_settings(self):
         dialog = ApiConfigDialog(self, self.api_config)
         if dialog.exec():
@@ -266,6 +298,10 @@ class VoiceAssistantGUI(QMainWindow):
             print(f"Error loading config: {e}")
 
         return DEFAULT_API_CONFIG
+    
+    def process_text(self, text):
+        self.user_input.setText(text)  # Update UI with recognized text
+        self.process_command(text)  # Process the recognized command
 
     def set_direct_mode(self, mode):
         """Set the direct mode for the next interaction"""
@@ -326,61 +362,6 @@ class VoiceAssistantGUI(QMainWindow):
             mode_text = "Normal"
 
         self.status_label.setText(f"Mode set to {mode_text}. Click Patriot Buddy to speak.")
-
-    def toggle_listening(self):
-        if not self.is_listening:
-            self.start_listening()
-        else:
-            self.stop_listening()
-
-    def start_listening(self):
-        self.is_listening = True
-        self.status_label.setText("Listening...")
-        self.logo_label.setVisible(False)  # Hide logo
-        self.animation_widget.setVisible(True)  # Show animation
-        self.animation_widget.start_animation()
-        self.user_input.setText("")
-        self.response_display.setText("")
-
-        # Start recording in a separate thread
-        threading.Thread(target=self.record_audio, daemon=True).start()
-
-    def stop_listening(self):
-        self.is_listening = False
-        self.animation_widget.stop_animation()
-        self.animation_widget.setVisible(False)  # Hide animation
-        self.logo_label.setVisible(True)  # Show logo again
-
-        if self.selected_mode is None:
-            mode_text = "Normal"
-        elif self.selected_mode == "CONVERSATION":
-            mode_text = "Chat"
-        elif self.selected_mode == "HOME_AUTOMATION":
-            mode_text = "Lights"
-        elif self.selected_mode == "EXTERNAL_API":
-            mode_text = "Weather/Stocks"
-        else:
-            mode_text = "Normal"
-
-        self.status_label.setText(f"Mode set to {mode_text}. Click Patriot Buddy to speak.")
-
-    def record_audio(self):
-        with sr.Microphone() as source:
-            self.r.adjust_for_ambient_noise(source)
-            try:
-                audio = self.r.listen(source, timeout=5)
-                try:
-                    text = self.r.recognize_google(audio)
-                    self.update_signal.emit(text, "user_input")
-                    self.process_command(text)
-                except sr.UnknownValueError:
-                    self.update_signal.emit("I couldn't understand that. Please try again.", "error")
-                except sr.RequestError as e:
-                    self.update_signal.emit(f"Speech recognition error: {e}", "error")
-            except sr.WaitTimeoutError:
-                self.update_signal.emit("No speech detected", "error")
-
-            self.update_signal.emit("", "stop_listening")
 
     def process_command(self, text):
         """Process the user's command based on classification or direct mode"""
@@ -674,7 +655,23 @@ class VoiceAssistantGUI(QMainWindow):
             self.status_label.setText(message)
             QTimer.singleShot(2000, lambda: self.status_label.setText("Click Patriot Buddy to speak"))
         elif message_type == "stop_listening":
-            self.stop_listening()
+            self.Listener.stop_listening()
+            self.animation_widget.stop_animation()
+            self.animation_widget.setVisible(False)  # Hide animation
+            self.logo_label.setVisible(True)  # Show logo again
+
+            if self.selected_mode is None:
+                mode_text = "Normal"
+            elif self.selected_mode == "CONVERSATION":
+                mode_text = "Chat"
+            elif self.selected_mode == "HOME_AUTOMATION":
+                mode_text = "Lights"
+            elif self.selected_mode == "EXTERNAL_API":
+                mode_text = "Weather/Stocks"
+            else:
+                mode_text = "Normal"
+
+            self.status_label.setText(f"Mode set to {mode_text}. Click Patriot Buddy to speak.")
 
     def speak(self, text):
         # Use a thread to avoid blocking the UI
