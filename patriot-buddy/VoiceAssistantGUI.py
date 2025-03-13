@@ -1,369 +1,43 @@
-import sys
+from ListeningAnimation import ListeningAnimation
+from APIconfigDialog import ApiConfigDialog
+from Colors import *
+from modernFrame import ModernFrame
 from dotenv import load_dotenv
+from API_CONFIGS import DEFAULT_API_CONFIG
 import threading
 import random
 import json
 import os
 from PySide6.QtCore import Qt, Signal, Slot, QTimer
-from PySide6.QtGui import QColor, QPainter, QPixmap, QIcon
-from PySide6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel,
-                               QWidget, QPushButton, QFrame, QDialog, QCheckBox, QLineEdit,
-                               QFormLayout, QTabWidget, QScrollArea, QMessageBox, QGridLayout,
-                               QGroupBox)
+from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QHBoxLayout, QLabel,
+                               QWidget, QPushButton)
 import requests
 import speech_recognition as sr
 from elevenlabs.client import ElevenLabs
 from elevenlabs import play, VoiceSettings
 
-# Load environment variables
-load_dotenv()
+CONFIG_FILE = "patriot-buddy/patriot_buddy_config.json"
 
-# Modern color palette
-PRIMARY_COLOR = "#1a7f40"  # Deeper green
-SECONDARY_COLOR = "#ffd600"  # Yellow
-ACCENT_COLOR = "#134d28"  # Darker green for contrast
-BACKGROUND_COLOR = "#fafafa"  # Clean, light background
-TEXT_COLOR = "#333333"  # Dark text
-LIGHT_TEXT_COLOR = "#666666"  # Secondary text
-
-# Load API keys from environment variables
-IFTTT_API_KEY = os.getenv("IFTTT_API_KEY")
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
-VOICE_ID = os.getenv("VOICE_ID")
-EVENT_ON = "PLUGON"
-EVENT_OFF = "PLUGOFF"
-
-# Default API configuration
-DEFAULT_API_CONFIG = {
-    "apis": {
-        "weather": {
-            "enabled": True,
-            "name": "Weather",
-            "provider": "OpenWeatherMap",
-            "key": os.getenv("OPENWEATHER_API_KEY"),
-            "default_location": "Manassas,VA,US"
-        },
-        "stocks": {
-            "enabled": True,
-            "name": "Stocks",
-            "provider": "Alpha Vantage",
-            "key": "default_key",
-            "default_symbol": "AAPL"
-        },
-        "news": {
-            "enabled": False,
-            "name": "News",
-            "provider": "NewsAPI",
-            "key": "default_key",
-            "topics": "technology"
-        },
-        "sports": {
-            "enabled": False,
-            "name": "Sports Scores",
-            "provider": "ESPN",
-            "key": "default_key",
-            "teams": "Washington"
-        },
-        "crypto": {
-            "enabled": False,
-            "name": "Cryptocurrency",
-            "provider": "CoinGecko",
-            "key": "default_key",
-            "default_coin": "bitcoin"
-        },
-        "traffic": {
-            "enabled": False,
-            "name": "Traffic",
-            "provider": "MapQuest",
-            "key": "default_key",
-            "route": "home_to_work"
-        },
-        "calendar": {
-            "enabled": False,
-            "name": "Calendar",
-            "provider": "Google Calendar",
-            "key": "default_key",
-            "calendar_id": "primary"
-        },
-        "reminders": {
-            "enabled": False,
-            "name": "Reminders",
-            "provider": "Local Reminders",
-            "storage": "reminders.json"
-        }
-    }
-}
-
-# Initialize ElevenLabs client
-client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
-
-# Path to save API configuration
-CONFIG_FILE = "patriot_buddy_config.json"
-
-
-class ApiConfigDialog(QDialog):
-    """Dialog for managing API configurations"""
-
-    def __init__(self, parent=None, api_config=None):
-        super().__init__(parent)
-
-        self.setWindowTitle("API Configuration")
-        self.setMinimumSize(500, 400)
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {BACKGROUND_COLOR};
-            }}
-            QTabWidget::pane {{
-                border: 1px solid #d0d0d0;
-                background-color: white;
-                border-radius: 4px;
-            }}
-            QTabBar::tab {{
-                background-color: #f0f0f0;
-                padding: 8px 16px;
-                margin-right: 2px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }}
-            QTabBar::tab:selected {{
-                background-color: white;
-                border: 1px solid #d0d0d0;
-                border-bottom-color: white;
-            }}
-            QCheckBox {{
-                spacing: 8px;
-            }}
-            QLineEdit {{
-                padding: 6px;
-                border: 1px solid #d0d0d0;
-                border-radius: 4px;
-            }}
-            QPushButton {{
-                background-color: {PRIMARY_COLOR};
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-            }}
-            QPushButton:hover {{
-                background-color: {ACCENT_COLOR};
-            }}
-        """)
-
-        # Load or initialize config
-        self.api_config = api_config if api_config else self.load_config()
-
-        # Main layout
-        layout = QVBoxLayout(self)
-
-        # Tab widget for different categories
-        self.tab_widget = QTabWidget()
-
-        # Create tabs for different API categories
-        self.create_api_tab()
-
-        layout.addWidget(self.tab_widget)
-
-        # Buttons
-        button_layout = QHBoxLayout()
-        save_button = QPushButton("Save")
-        cancel_button = QPushButton("Cancel")
-
-        save_button.clicked.connect(self.save_and_close)
-        cancel_button.clicked.connect(self.reject)
-
-        button_layout.addWidget(cancel_button)
-        button_layout.addWidget(save_button)
-
-        layout.addLayout(button_layout)
-
-    def create_api_tab(self):
-        """Create the tab with API settings"""
-        api_widget = QWidget()
-        api_layout = QVBoxLayout(api_widget)
-
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_content = QWidget()
-        scroll_layout = QVBoxLayout(scroll_content)
-
-        self.api_checkboxes = {}
-        self.api_fields = {}
-
-        # Group APIs by category
-        for api_id, api_data in self.api_config["apis"].items():
-            api_group = QGroupBox(api_data["name"])
-            group_layout = QFormLayout(api_group)
-
-            # Enable/disable checkbox
-            checkbox = QCheckBox("Enable")
-            checkbox.setChecked(api_data["enabled"])
-            self.api_checkboxes[api_id] = checkbox
-
-            # API key field
-            key_field = QLineEdit(api_data.get("key", ""))
-            key_field.setPlaceholderText("Enter API Key")
-            self.api_fields[f"{api_id}_key"] = key_field
-
-            group_layout.addRow(checkbox, QWidget())  # Empty widget as spacer
-            group_layout.addRow("API Key:", key_field)
-
-            # Add additional fields based on API type
-            if api_id == "weather":
-                location_field = QLineEdit(api_data.get("default_location", ""))
-                location_field.setPlaceholderText("City, Country (e.g. Paris,FR)")
-                self.api_fields[f"{api_id}_location"] = location_field
-                group_layout.addRow("Default Location:", location_field)
-
-            elif api_id == "stocks":
-                symbol_field = QLineEdit(api_data.get("default_symbol", ""))
-                symbol_field.setPlaceholderText("Default Stock Symbol (e.g. AAPL)")
-                self.api_fields[f"{api_id}_symbol"] = symbol_field
-                group_layout.addRow("Default Symbol:", symbol_field)
-
-            # Add more fields for other API types as needed
-
-            scroll_layout.addWidget(api_group)
-
-        scroll_area.setWidget(scroll_content)
-        api_layout.addWidget(scroll_area)
-
-        self.tab_widget.addTab(api_widget, "API Settings")
-
-    def save_and_close(self):
-        """Save the configuration and close the dialog"""
-        # Update configuration based on user input
-        for api_id, checkbox in self.api_checkboxes.items():
-            self.api_config["apis"][api_id]["enabled"] = checkbox.isChecked()
-
-            # Update API key
-            if f"{api_id}_key" in self.api_fields:
-                self.api_config["apis"][api_id]["key"] = self.api_fields[f"{api_id}_key"].text()
-
-            # Update additional fields
-            if api_id == "weather" and f"{api_id}_location" in self.api_fields:
-                self.api_config["apis"][api_id]["default_location"] = self.api_fields[f"{api_id}_location"].text()
-
-            elif api_id == "stocks" and f"{api_id}_symbol" in self.api_fields:
-                self.api_config["apis"][api_id]["default_symbol"] = self.api_fields[f"{api_id}_symbol"].text()
-
-        # Save to file
-        self.save_config()
-
-        self.accept()
-
-    def load_config(self):
-        """Load configuration from file or return default"""
-        try:
-            if os.path.exists(CONFIG_FILE):
-                with open(CONFIG_FILE, 'r') as f:
-                    return json.load(f)
-        except Exception as e:
-            print(f"Error loading config: {e}")
-
-        return DEFAULT_API_CONFIG
-
-    def save_config(self):
-        """Save configuration to file"""
-        try:
-            with open(CONFIG_FILE, 'w') as f:
-                json.dump(self.api_config, f, indent=2)
-        except Exception as e:
-            print(f"Error saving config: {e}")
-
-
-class ListeningAnimation(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(140, 140)
-
-        # Color scheme
-        self.wave_color = QColor(26, 127, 64)  # Green
-        self.center_color = QColor(255, 214, 0)  # Yellow
-
-        self.circle_radius = 50
-        self.animation_progress = 0.0
-
-        # Animation timer
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_animation)
-
-        # Wave properties
-        self.wave_count = 3
-        self.waves = []
-        for i in range(self.wave_count):
-            self.waves.append(0.0)  # Initial scale values
-
-        self.is_animating = False
-
-    def start_animation(self):
-        self.is_animating = True
-        self.timer.start(50)  # Update every 50ms
-
-    def stop_animation(self):
-        self.is_animating = False
-        self.timer.stop()
-        # Reset waves
-        for i in range(self.wave_count):
-            self.waves[i] = 0.0
-        self.update()
-
-    def update_animation(self):
-        # Update each wave
-        for i in range(self.wave_count):
-            if self.waves[i] < 1.0:
-                self.waves[i] += 0.05
-            else:
-                self.waves[i] = 0.0
-        self.update()
-
-    def paintEvent(self, event):
-        if not self.is_animating:
-            return
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        center_x = self.width() // 2
-        center_y = self.height() // 2
-
-        # Draw waves
-        for i, scale in enumerate(self.waves):
-            if scale > 0:
-                opacity = 1.0 - scale
-                size = self.circle_radius * (1.0 + scale)
-
-                painter.setPen(Qt.NoPen)
-                color = self.wave_color  # Green color
-                color.setAlphaF(opacity * 0.5)
-                painter.setBrush(color)
-
-                painter.drawEllipse(center_x - size, center_y - size, size * 2, size * 2)
-
-        # Draw center circle
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(self.center_color)  # Yellow color
-        painter.drawEllipse(center_x - self.circle_radius / 2, center_y - self.circle_radius / 2,
-                            self.circle_radius, self.circle_radius)
-
-
-class ModernFrame(QFrame):
-    """Custom frame with modern styling"""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFrameShape(QFrame.StyledPanel)
-        self.setStyleSheet(f"""
-            ModernFrame {{
-                background-color: white;
-                border-radius: 12px;
-                border: 1px solid #e0e0e0;
-            }}
-        """)
 
 
 class VoiceAssistantGUI(QMainWindow):
     update_signal = Signal(str, str)  # (message, type)
+
+    load_dotenv(dotenv_path="patriot-buddy/env")
+
+    # Load API keys from environment variables
+    IFTTT_API_KEY = os.getenv("IFTTT_API_KEY")
+    ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+    VOICE_ID = os.getenv("VOICE_ID")
+    EVENT_ON = "PLUGON"
+    EVENT_OFF = "PLUGOFF"
+
+    # Initialize ElevenLabs client
+    client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+
+    # Path to save API configuration
+
 
     def __init__(self):
         super().__init__()
@@ -377,6 +51,7 @@ class VoiceAssistantGUI(QMainWindow):
     def init_ui(self):
         # Set window properties
         self.setWindowTitle("Patriot Buddy")
+        self.setWindowIcon(QPixmap("patriot-buddy/patriot_buddy.ico"))
         self.setMinimumSize(540, 680)
         self.setStyleSheet(f"""
             QMainWindow {{
@@ -442,7 +117,7 @@ class VoiceAssistantGUI(QMainWindow):
 
         # Logo
         self.logo_label = QLabel(self.buddy_container)
-        logo_path = "patriot_buddy.png"
+        logo_path = "patriot-buddy/patriot_buddy.png"
         try:
             pixmap = QPixmap(logo_path)
             pixmap = pixmap.scaled(140, 140, Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -578,14 +253,11 @@ class VoiceAssistantGUI(QMainWindow):
         self.set_direct_mode(None)
 
     def open_settings(self):
-        """Open the API configuration dialog"""
         dialog = ApiConfigDialog(self, self.api_config)
         if dialog.exec():
-            # If dialog was accepted, reload config
             self.api_config = self.load_config()
 
     def load_config(self):
-        """Load configuration from file or return default"""
         try:
             if os.path.exists(CONFIG_FILE):
                 with open(CONFIG_FILE, 'r') as f:
@@ -599,7 +271,6 @@ class VoiceAssistantGUI(QMainWindow):
         """Set the direct mode for the next interaction"""
         self.selected_mode = mode
 
-        # Update button styling to show selected mode
         reset_style = f"""
             QPushButton {{
                 background-color: white;
@@ -1025,9 +696,3 @@ class VoiceAssistantGUI(QMainWindow):
         except Exception as e:
             print(f"Text-to-speech error: {e}")
 
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = VoiceAssistantGUI()
-    window.show()
-    sys.exit(app.exec())
