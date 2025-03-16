@@ -300,8 +300,9 @@ class VoiceAssistantGUI(QMainWindow):
         return DEFAULT_API_CONFIG
     
     def process_text(self, text):
-        self.user_input.setText(text)  
-        threading.Thread(target=self.process_command(text), daemon=True).start()
+        print("Processing Text :", text)
+        self.update_signal.emit(text, "user_input")
+        threading.Thread(target=self.process_command, args=(text,), daemon=True).start()
 
     def set_direct_mode(self, mode):
         """Set the direct mode for the next interaction"""
@@ -679,9 +680,9 @@ class VoiceAssistantGUI(QMainWindow):
 
     def _speak_thread(self, text):
         try:
-            audio = client.text_to_speech.convert(
+            audio = self.client.text_to_speech.convert(
                 text=text,
-                voice_id=VOICE_ID,
+                voice_id=self.VOICE_ID,
                 model_id="eleven_multilingual_v2",
                 output_format="mp3_44100_128",
                 voice_settings=VoiceSettings(

@@ -6,7 +6,7 @@ class Listener(QObject):
     text_received = Signal(str, str)
 
     def __init__(self):
-        super(Listener, self).__init__()       
+        super(Listener, self).__init__()
         self.is_listening = False
         self.record = sr.Recognizer()
 
@@ -34,9 +34,7 @@ class Listener(QObject):
                     except sr.RequestError as e:
                         self.text_received.emit(f"Speech recognition request error: {e}", "error")
                 except sr.WaitTimeoutError:
-                    self.text_received.emit("No speech detected", "error")
-
-            self.text_received.emit("", "stop_listening")
+                    self.text_received.emit("No speech detected", "error")            
 
         threading.Thread(target=listen, daemon=True).start()
 
