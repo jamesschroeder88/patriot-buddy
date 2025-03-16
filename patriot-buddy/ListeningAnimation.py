@@ -62,6 +62,8 @@ class ListeningAnimation(QWidget):
         for i, scale in enumerate(self.waves):
             if scale > 0:
                 opacity = 1.0 - scale
+                if opacity < 0:
+                    opacity = 0
                 size = self.circle_radius * (1.0 + scale)
 
                 painter.setPen(Qt.NoPen)
